@@ -58,7 +58,12 @@ public static class CatchupMediaSourceFactory
                 Path = startoverPath,
                 Protocol = MediaProtocol.Http,
                 IsRemote = true,
-                RunTimeTicks = null,
+                // Duracion del programa: sin ella el cliente dibuja el OSD de un directo (sin
+                // tiempos, slider clavado en 0 y sin forma de retroceder). Con ella el start-over
+                // se maneja como el catchup, que es lo que es. IsInfiniteStream sigue en true
+                // porque el transporte si es de directo (playlist EVENT que crece hasta el vivo),
+                // y el retroceso dentro de lo ya emitido lo resuelve hls.js sobre esa playlist.
+                RunTimeTicks = Math.Max((endUtc.Value - startUtc).Ticks, TimeSpan.TicksPerSecond),
                 IsInfiniteStream = true,
                 SupportsDirectPlay = false,
                 SupportsDirectStream = true,
@@ -67,7 +72,7 @@ public static class CatchupMediaSourceFactory
                 Container = "hls",
                 RequiresOpening = false,
                 Type = MediaSourceType.Default,
-                MediaStreams = [],
+                MediaStreams = PlaceholderStreams(configuration),
             };
         }
 
@@ -94,9 +99,43 @@ public static class CatchupMediaSourceFactory
             Container = "hls",
             RequiresOpening = false,
             Type = MediaSourceType.Default,
-            MediaStreams = [],
+            MediaStreams = PlaceholderStreams(configuration),
         };
     }
+
+    /// <summary>
+    /// Marcadores de pista que Jellyfin necesita para construir el comando de ffmpeg.
+    /// Sin ellos <c>state.VideoStream</c>/<c>AudioStream</c> son null y EncodingHelper devuelve
+    /// argumentos de video y audio VACIOS: ffmpeg sale sin -hwaccel, sin -codec:v, sin -b:v y sin
+    /// mapeo, cae a libx264 por CPU con CRF por defecto y el cliente se queda en negro
+    /// (medido el 2026-08-30; el directo funcionaba porque M3UTunerHost si declara estos dos).
+    /// El indice es -1 porque no conocemos la posicion real dentro del contenedor, igual que hace
+    /// M3UTunerHost.CreateMediaSourceInfo. IsInterlaced se deja en false a proposito: el material
+    /// de Totalplay es 1080p progresivo y marcarlo entrelazado anadiria un yadif innecesario.
+    /// </summary>
+    private static MediaStream[] PlaceholderStreams(Configuration.PluginConfiguration configuration) =>
+    [
+        new MediaStream
+        {
+            Type = MediaStreamType.Video,
+            Index = -1,
+            IsInterlaced = false,
+            // El codec se deja sin declarar (como M3UTunerHost) para que Jellyfin transcodifique
+            // en vez de intentar un copy sobre una fuente cuyo codec real no hemos sondeado.
+            // Ancho, alto y bitrate SI se declaran: Jellyfin acota el bitrate de salida al de
+            // origen, y sin ese tope pide -b:v 1073741823 y la reproduccion se atasca.
+            Width = configuration.SourceWidth,
+            Height = configuration.SourceHeight,
+            BitRate = configuration.SourceVideoBitrate,
+        },
+        new MediaStream
+        {
+            Type = MediaStreamType.Audio,
+            Index = -1,
+            Channels = 2,
+            BitRate = 192_000,
+        },
+    ];
 
     /// <summary>Formats an instant the way the Qwilt CDN expects (YYYYMMDDTHHMMSS, UTC).</summary>
     public static string FormatCdnTimestamp(DateTime utc)
