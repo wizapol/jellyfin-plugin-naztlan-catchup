@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.MediaInfo;
@@ -51,7 +53,7 @@ public static class CatchupMediaSourceFactory
 
             return new MediaSourceInfo
             {
-                Id = $"naztlan-{itemId:N}-startover",
+                Id = DeriveId(itemId, "startover"),
                 Name = "Desde el inicio",
                 Path = startoverPath,
                 Protocol = MediaProtocol.Http,
@@ -78,7 +80,7 @@ public static class CatchupMediaSourceFactory
 
         return new MediaSourceInfo
         {
-            Id = $"naztlan-{itemId:N}-catchup",
+            Id = DeriveId(itemId, "catchup"),
             Name = "Catchup",
             Path = path,
             Protocol = MediaProtocol.Http,
@@ -119,4 +121,21 @@ public static class CatchupMediaSourceFactory
             CultureInfo.InvariantCulture,
             $"{basePart}?begin={FormatCdnTimestamp(beginUtc)}");
     }
+
+    /// <summary>
+    /// Deterministic GUID per (programme, mode). DynamicHlsHelper parses MediaSourceId with Guid.Parse
+    /// (500 with any other format, seen 2026-08-29), so the id cannot carry a readable suffix; the
+    /// start-over mode is recognised by the Path (begin= without end=) instead.
+    /// </summary>
+    public static string DeriveId(Guid itemId, string mode)
+    {
+        var hash = MD5.HashData(Encoding.UTF8.GetBytes($"naztlan-{itemId:N}-{mode}"));
+        return new Guid(hash).ToString("N");
+    }
+
+    /// <summary>True when the path is a live start-over playlist (begin without end).</summary>
+    public static bool IsStartoverPath(string? path)
+        => !string.IsNullOrEmpty(path)
+           && path.Contains("begin=", StringComparison.Ordinal)
+           && !path.Contains("end=", StringComparison.Ordinal);
 }
