@@ -1,0 +1,15 @@
+{
+  "category": "Live TV",
+  "changelog": "Catchup VOD, start-over, canal universal y API REST.",
+  "description": "Catchup y start-over de IPTV Naztlan",
+  "guid": "9f9a5c5e-6d36-4cb0-9e0b-764c5dd58441",
+  "name": "Naztlan Catchup",
+  "overview": "Integra el archivo de Totalplay con la guía de Jellyfin.",
+  "owner": "wizapol",
+  "targetAbi": "10.11.11.0",
+  "timestamp": "2026-08-30T01:00:00.0000000Z",
+  "version": "1.0.0.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "assemblies": []
+}
