@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.NaztlanCatchup.Tests;
 public sealed class CatchupMediaSourceFactoryTests
 {
     private static readonly DateTime Now = new(2026, 8, 30, 1, 0, 0, DateTimeKind.Utc);
-    private static readonly CatchupChannel Channel = new("2169", 7, true, "Azteca uno", "tp112169", "http://cdn/index.m3u8");
+    private static readonly CatchupChannel Channel = new("2169", 7, true, "Azteca uno", "tp112169", "http://cdn/bpk-tv/tp112169/clear/index.m3u8?begin=${start}&end=${end}");
     private static readonly PluginConfiguration Configuration = new()
     {
         IptvBaseUrl = "http://iptv_tp:8801/",
@@ -28,14 +28,23 @@ public sealed class CatchupMediaSourceFactoryTests
     }
 
     [Fact]
-    public void AiringProgrammeBuildsStartOverSnapshot()
+    public void AiringProgrammeBuildsLiveStartOverFromCdn()
     {
         var source = CatchupMediaSourceFactory.Create(Guid.NewGuid(), Now.AddMinutes(-30), Now.AddMinutes(30), Channel, Now, Configuration);
 
         Assert.NotNull(source);
         Assert.Equal("Desde el inicio", source.Name);
-        Assert.Equal(TimeSpan.FromMinutes(30).Ticks, source.RunTimeTicks);
-        Assert.Contains("end=1788051720", source.Path, StringComparison.Ordinal);
+        Assert.True(source.IsInfiniteStream);
+        Assert.Null(source.RunTimeTicks);
+        // inicio 00:30 UTC menos 120 s de margen, begin sin end (el CDN sigue al vivo)
+        Assert.Equal("http://cdn/bpk-tv/tp112169/clear/index.m3u8?begin=20260830T002800", source.Path);
+    }
+
+    [Fact]
+    public void AiringProgrammeWithoutTemplateHasNoSource()
+    {
+        var noTemplate = Channel with { CatchupSource = string.Empty };
+        Assert.Null(CatchupMediaSourceFactory.Create(Guid.NewGuid(), Now.AddMinutes(-30), Now.AddMinutes(30), noTemplate, Now, Configuration));
     }
 
     [Fact]

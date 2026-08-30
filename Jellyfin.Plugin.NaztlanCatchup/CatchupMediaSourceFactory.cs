@@ -34,19 +34,52 @@ public static class CatchupMediaSourceFactory
             return null;
         }
 
-        var begin = new DateTimeOffset(startUtc.AddSeconds(-Math.Max(configuration.MarginBeforeSeconds, 0))).ToUnixTimeSeconds();
-        var effectiveEnd = inProgress ? nowUtc : endUtc.Value;
-        var end = new DateTimeOffset(effectiveEnd.AddSeconds(Math.Max(configuration.MarginAfterSeconds, 0))).ToUnixTimeSeconds();
+        var beginUtc = startUtc.AddSeconds(-Math.Max(configuration.MarginBeforeSeconds, 0));
+        var begin = new DateTimeOffset(beginUtc).ToUnixTimeSeconds();
+
+        if (inProgress)
+        {
+            // Start-over "vivo" (M6): el CDN acepta begin sin end y sirve desde el inicio del
+            // programa siguiendo al directo. Con IsInfiniteStream Jellyfin usa la ruta de directo
+            // (playlist EVENT, -hls_list_size 0), asi que ffmpeg arranca en el inicio del programa y
+            // la ventana crece hasta el vivo. El cliente web mapea el slider leyendo begin= del Path.
+            var startoverPath = BuildStartoverPath(channel, beginUtc);
+            if (startoverPath is null)
+            {
+                return null;
+            }
+
+            return new MediaSourceInfo
+            {
+                Id = $"naztlan-{itemId:N}-startover",
+                Name = "Desde el inicio",
+                Path = startoverPath,
+                Protocol = MediaProtocol.Http,
+                IsRemote = true,
+                RunTimeTicks = null,
+                IsInfiniteStream = true,
+                SupportsDirectPlay = false,
+                SupportsDirectStream = true,
+                SupportsTranscoding = true,
+                SupportsProbing = true,
+                Container = "hls",
+                RequiresOpening = false,
+                Type = MediaSourceType.Default,
+                MediaStreams = [],
+            };
+        }
+
+        var end = new DateTimeOffset(endUtc.Value.AddSeconds(Math.Max(configuration.MarginAfterSeconds, 0))).ToUnixTimeSeconds();
         var baseUrl = configuration.IptvBaseUrl.TrimEnd('/');
         var path = string.Create(
             CultureInfo.InvariantCulture,
             $"{baseUrl}/dispatcharr/catchup/{Uri.EscapeDataString(channel.LchId)}?begin={begin}&end={end}");
-        var runtime = effectiveEnd - startUtc;
+        var runtime = endUtc.Value - startUtc;
 
         return new MediaSourceInfo
         {
-            Id = $"naztlan-{itemId:N}-{(inProgress ? "startover" : "catchup")}",
-            Name = inProgress ? "Desde el inicio" : "Catchup",
+            Id = $"naztlan-{itemId:N}-catchup",
+            Name = "Catchup",
             Path = path,
             Protocol = MediaProtocol.Http,
             IsRemote = true,
@@ -61,5 +94,29 @@ public static class CatchupMediaSourceFactory
             Type = MediaSourceType.Default,
             MediaStreams = [],
         };
+    }
+
+    /// <summary>Formats an instant the way the Qwilt CDN expects (YYYYMMDDTHHMMSS, UTC).</summary>
+    public static string FormatCdnTimestamp(DateTime utc)
+        => utc.ToString("yyyyMMdd'T'HHmmss", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Builds the direct CDN start-over URL (begin without end) from the map's catchup-source
+    /// template (…/clear/index.m3u8?begin=${start}&amp;end=${end}). Returns null when the channel has
+    /// no usable template.
+    /// </summary>
+    public static string? BuildStartoverPath(CatchupChannel channel, DateTime beginUtc)
+    {
+        var template = channel.CatchupSource;
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return null;
+        }
+
+        var query = template.IndexOf('?', StringComparison.Ordinal);
+        var basePart = query >= 0 ? template[..query] : template;
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{basePart}?begin={FormatCdnTimestamp(beginUtc)}");
     }
 }
